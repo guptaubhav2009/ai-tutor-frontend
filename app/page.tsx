@@ -1,6 +1,6 @@
 // frontend/app/page.tsx
 
-import ChatClient from './ChatClient';
+import ChatClient from './chatClient';
 
 export default function Home() {
   // This is a Server Component, so it can safely access environment variables.
