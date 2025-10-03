@@ -134,12 +134,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
               ))}
               <div ref={messagesEndRef} />
             </div>
-          ) : (
-            <div className="text-center pt-20">
-              <h1 className="text-4xl font-semibold text-gray-800">AI Tutor</h1>
-              <p className="mt-2 text-gray-500">Your NCERT-based study assistant</p>
-            </div>
-          )}
+          ) }
         </div>
       </div>
 
