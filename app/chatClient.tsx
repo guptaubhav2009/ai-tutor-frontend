@@ -114,7 +114,10 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   
   return (
     <div className="flex flex-col h-screen bg-white">
-      {/* Welcome Message or Chat Log */}
+      <header className="bg-white shadow-md p-4">
+        <h1 className="text-2xl font-bold text-gray-800">IVidya AI Concept Tutor</h1>
+        <p className="text-sm text-gray-500">Prototype based on Class VI (NCERT) Science chapter on Magnets</p>
+      </header>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-10">
           {messages.length > 0 ? (
