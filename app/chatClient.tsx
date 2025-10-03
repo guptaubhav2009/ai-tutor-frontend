@@ -134,7 +134,11 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
               ))}
               <div ref={messagesEndRef} />
             </div>
-          ) }
+          ) : (
+            <div className="text-center pt-20">
+              
+            </div>
+          )}
         </div>
       </div>
 
