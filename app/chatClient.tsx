@@ -41,10 +41,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
 
   useEffect(scrollToBottom, [messages]);
 
-  const handleSend = async (messageText: string) => {
-    if (!messageText.trim() || isLoading) return;
-
-const handleSend = async (messageText: string) => {
+    const handleSend = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
     const userMessage: Message = { text: messageText, isUser: true };
@@ -89,7 +86,7 @@ const handleSend = async (messageText: string) => {
         setIsLoading(false);
       },
 
-      onerror(err) {
+      onerror(err: any) {
         console.error('EventSource failed:', err);
         setMessages(prev => {
           const lastMessage = prev[prev.length - 1];
@@ -101,7 +98,7 @@ const handleSend = async (messageText: string) => {
       }
     });
   };
-
+  
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     handleSend(input);
