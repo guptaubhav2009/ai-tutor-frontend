@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "IVidya AI Bio Concept Tutor",
-  description: "Prototype based on Photosynthesis Chapter",
+  title: "IVidya AI Concept Tutor",
+  description: "Prototype based on Class VI NCERT Science chapter on Magnets",
 };
 
 export default function RootLayout({
