@@ -1,23 +1,48 @@
+// frontend/app/ChatClient.tsx
+
 'use client';
 
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
+
+// --- A new "Up Arrow" Icon for the submit button ---
+const UpArrowIcon = () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+);
 
 type Message = {
   text: string;
   isUser: boolean;
 };
 
-export default function ChatClient({ apiUrl }: { apiUrl: string })  {
+// --- Main Chat Component ---
+export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // --- Logic to auto-resize the textarea ---
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'; // Reset height
+      const scrollHeight = textareaRef.current.scrollHeight;
+      textareaRef.current.style.height = `${scrollHeight}px`;
+    }
+  }, [input]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(scrollToBottom, [messages]);
+
+  const handleSend = async (messageText: string) => {
+    if (!messageText.trim() || isLoading) return;
 
 const handleSend = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
@@ -26,43 +51,55 @@ const handleSend = async (messageText: string) => {
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
+    // Add a placeholder for the AI's response
     setMessages((prev) => [...prev, { text: '', isUser: false }]);
 
-    try {
-      // Use the apiUrl prop for the fetch call
-      const response = await fetch(`${apiUrl}/query`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: messageText }),
-      });
-
-      if (!response.body) return;
+    await fetchEventSource(`${apiUrl}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: messageText }),
       
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
+      onopen: async (res: { ok: any; status: any; }) => {
+        if (!res.ok) {
+          throw new Error(`Failed to connect: ${res.status}`);
+        }
+      },
 
-      while (!done) {
-          const { value, done: readerDone } = await reader.read();
-          done = readerDone;
-          const chunk = decoder.decode(value);
+      onmessage(event: { data: string; }) {
+        const parsed = JSON.parse(event.data);
+
+        if (parsed.type === 'content_delta') {
           setMessages(prev => {
-              const lastMessage = prev[prev.length - 1];
-              lastMessage.text += chunk;
-              return [...prev.slice(0, -1), lastMessage];
+            const lastMessage = prev[prev.length - 1];
+            lastMessage.text += parsed.data;
+            return [...prev.slice(0, -1), lastMessage];
           });
-      }
+        } else if (parsed.type === 'error') {
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            lastMessage.text = `Sorry, an error occurred: ${parsed.data}`;
+            return [...prev.slice(0, -1), lastMessage];
+          });
+          throw new Error(parsed.data); // Stop the stream
+        }
+      },
 
-    } catch (error) {
-      console.error('Error fetching stream:', error);
-      setMessages(prev => {
-        const lastMessage = prev[prev.length - 1];
-        lastMessage.text = "Sorry, an error occurred. Please check the backend connection.";
-        return [...prev.slice(0, -1), lastMessage];
-      });
-    } finally {
-      setIsLoading(false);
-    }
+      onclose() {
+        // This is called when the stream ends from the server
+        setIsLoading(false);
+      },
+
+      onerror(err) {
+        console.error('EventSource failed:', err);
+        setMessages(prev => {
+          const lastMessage = prev[prev.length - 1];
+          lastMessage.text = "An unexpected error occurred. Please try again.";
+          return [...prev.slice(0, -1), lastMessage];
+        });
+        setIsLoading(false);
+        throw err; // Stop retrying
+      }
+    });
   };
 
   const handleSubmit = (e: FormEvent) => {
@@ -71,43 +108,65 @@ const handleSend = async (messageText: string) => {
     setInput('');
   };
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as any);
+    }
+  };
+  
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      <header className="bg-white shadow-md p-4">
-        <h1 className="text-2xl font-bold text-gray-800">iVidya Biology Tutor (NCERT)</h1>
-        <p className="text-sm text-gray-500">Prototype based on Photosynthesis Chapter</p>
-      </header>
-      
-      <main className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, index) => (
-          <div key={index} className={`flex ${msg.isUser ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xl p-3 rounded-lg ${msg.isUser ? 'bg-blue-500 text-white' : 'bg-white text-gray-800'}`}>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+    <div className="flex flex-col h-screen bg-white">
+      {/* Welcome Message or Chat Log */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-10">
+          {messages.length > 0 ? (
+            <div className="space-y-8">
+              {messages.map((msg, index) => (
+                <div key={index}>
+                  <div className="font-bold text-gray-800">{msg.isUser ? 'You' : 'AI Tutor'}</div>
+                  <div className="mt-2 text-gray-700">
+                    <article className="prose prose-sm max-w-none">
+                        <ReactMarkdown>{msg.text || '...'}</ReactMarkdown>
+                    </article>
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          </div>
-        ))}
-         <div ref={messagesEndRef} />
-      </main>
+          ) : (
+            <div className="text-center pt-20">
+              <h1 className="text-4xl font-semibold text-gray-800">AI Biology Tutor</h1>
+              <p className="mt-2 text-gray-500">Your NCERT-based study assistant</p>
+            </div>
+          )}
+        </div>
+      </div>
 
-      <footer className="bg-white p-4">
-        <form onSubmit={handleSubmit} className="flex space-x-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Ask a question about photosynthesis..."
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg disabled:bg-blue-300"
-            disabled={isLoading}
-          >
-            {isLoading ? 'Thinking...' : 'Send'}
-          </button>
-        </form>
-      </footer>
+      {/* --- New Textarea Input --- */}
+      <div className="px-4 pb-4">
+        <div className="max-w-3xl mx-auto">
+          <form onSubmit={handleSubmit} className="relative">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              className="w-full p-4 pr-16 border border-gray-300 rounded-2xl shadow-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Ask a question..."
+              disabled={isLoading}
+            />
+            <button
+              type="submit"
+              className="absolute right-4 bottom-3 p-2 bg-blue-500 text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
+              disabled={isLoading || !input.trim()}
+            >
+              <UpArrowIcon />
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
