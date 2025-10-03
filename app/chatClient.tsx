@@ -47,7 +47,6 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
     const userMessage: Message = { text: messageText, isUser: true };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
-
     // Add a placeholder for the AI's response
     setMessages((prev) => [...prev, { text: '', isUser: false }]);
 
@@ -61,23 +60,31 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
           throw new Error(`Failed to connect: ${res.status}`);
         }
       },
-
       onmessage(event: { data: string; }) {
-        const parsed = JSON.parse(event.data);
+      // --- FIX 2: Robust JSON parsing ---
+      // If the data is not a valid JSON string, we simply ignore this chunk
+      // and wait for the next one, preventing a crash.
+       try {
+            const parsed = JSON.parse(event.data);
 
-        if (parsed.type === 'content_delta') {
-          setMessages(prev => {
-            const lastMessage = prev[prev.length - 1];
-            lastMessage.text += parsed.data;
-            return [...prev.slice(0, -1), lastMessage];
-          });
-        } else if (parsed.type === 'error') {
-          setMessages(prev => {
-            const lastMessage = prev[prev.length - 1];
-            lastMessage.text = `Sorry, an error occurred: ${parsed.data}`;
-            return [...prev.slice(0, -1), lastMessage];
-          });
-          throw new Error(parsed.data); // Stop the stream
+            if (parsed.type === 'content_delta') {
+              setMessages(prev => {
+                // --- FIX 1: Correct immutable state update ---
+                // We create a new array and a new object for the last message
+                // to ensure React detects the change correctly.
+                const newMessages = [...prev];
+                const lastMessageIndex = newMessages.length - 1;
+                newMessages[lastMessageIndex] = {
+                    ...newMessages[lastMessageIndex],
+                    text: newMessages[lastMessageIndex].text + parsed.data,
+                };
+                return newMessages;
+              });
+            } else if (parsed.type === 'error') {
+              throw new Error(parsed.data);
+            }
+        } catch(e) {
+            console.error("Received a malformed stream event:", event.data);
         }
       },
 
@@ -85,16 +92,21 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
         // This is called when the stream ends from the server
         setIsLoading(false);
       },
-
-      onerror(err: any) {
+    onerror(err: any) {
         console.error('EventSource failed:', err);
         setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          lastMessage.text = "An unexpected error occurred. Please try again.";
-          return [...prev.slice(0, -1), lastMessage];
+          const newMessages = [...prev];
+          const lastMessageIndex = newMessages.length - 1;
+          if (lastMessageIndex >= 0) {
+            newMessages[lastMessageIndex] = {
+                ...newMessages[lastMessageIndex],
+                text: "An unexpected error occurred. Please try again.",
+            };
+          }
+          return newMessages;
         });
         setIsLoading(false);
-        throw err; // Stop retrying
+        throw err; // This stops the library from retrying
       }
     });
   };
