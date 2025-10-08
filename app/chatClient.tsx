@@ -18,6 +18,11 @@ type Message = {
   isUser: boolean;
 };
 
+type Suggestion = {
+  label: string;
+  action: string;
+};
+
 // --- Main Chat Component ---
 export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -26,6 +31,11 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // --- State variables for video generation ---
+  const [videoJobId, setVideoJobId] = useState<string | null>(null);
+  const [videoStatus, setVideoStatus] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   // --- Logic to auto-resize the textarea ---
   useEffect(() => {
     if (textareaRef.current) {
@@ -38,27 +48,112 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
+  // Auto-scroll to bottom of chat
   useEffect(scrollToBottom, [messages]);
 
+    // --- Polling logic for video status ---
+  useEffect(() => {
+    if (!videoJobId) return;
+
+    const attempts = { current: 0 };
+    const maxAttempts = 24; // 24 attempts * 5 seconds/attempt = 120 seconds (2 minutes)
+
+    const interval = setInterval(async () => {
+      // --- NEW: Check for timeout ---
+      if (attempts.current > maxAttempts) {
+        clearInterval(interval);
+        setVideoStatus('TIMED_OUT');
+        setVideoJobId(null);
+        // You can update the last message to show the timeout error
+        setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMessageIndex = newMessages.length - 1;
+            if (lastMessageIndex >= 0) {
+              newMessages[lastMessageIndex] = {
+                  ...newMessages[lastMessageIndex],
+                  text: (newMessages[lastMessageIndex].text || "") + "\n\nSorry, the video generation timed out.",
+              };
+            }
+            return newMessages;
+        });
+        return;
+      }
+
+      attempts.current += 1; // Increment attempt counter
+      try {
+        const res = await fetch(`${apiUrl}/video-status/${videoJobId}`);
+        if (!res.ok) throw new Error("Failed to fetch status");
+        
+        const data = await res.json();
+        setVideoStatus(data.status);
+
+        if (data.status === 'COMPLETE') {
+          setVideoUrl(data.video_url);
+          setVideoJobId(null); // Stop polling
+          clearInterval(interval);
+        } else if (data.status === 'FAILED') {
+          console.error("Video generation failed:", data.error);
+          setVideoJobId(null); // Stop polling
+          clearInterval(interval);
+        }
+      } catch (e) {
+        console.error("Polling error:", e);
+        setVideoStatus('FAILED');
+        setVideoJobId(null);
+        clearInterval(interval);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [videoJobId, apiUrl]);
+
+   const handleGenerateVideo = async (textContent: string) => {
+    if (!textContent) return;
+    setVideoStatus('REQUESTED');
+    
+    try {
+        const res = await fetch(`${apiUrl}/generate-video`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text_content: textContent }),
+        });
+
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || "Failed to start video generation.");
+        }
+
+        const data = await res.json();
+        setVideoJobId(data.job_id);
+    } catch(err: any) {
+        setVideoStatus(`FAILED: ${err.message}`);
+    }
+  };
     const handleSend = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
-
+    
+    // Reset video state for new conversations
+    setVideoJobId(null);
+    setVideoStatus('');
+    setVideoUrl('');
+    setSuggestions([]); // Clear previous suggestions
+    const ctrl = new AbortController();
     const userMessage: Message = { text: messageText, isUser: true };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
-    // Add a placeholder for the AI's response
-    setMessages((prev) => [...prev, { text: '', isUser: false }]);
+    
 
     await fetchEventSource(`${apiUrl}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: messageText }),
-      
+      signal: ctrl.signal,
       onopen: async (res: { ok: any; status: any; }) => {
         if (!res.ok) {
           throw new Error(`Failed to connect: ${res.status}`);
         }
+        // Add a placeholder for the AI's response
+        setMessages((prev) => [...prev, { text: '', isUser: false }]);
       },
       onmessage(event: { data: string; }) {
       // --- FIX 2: Robust JSON parsing ---
@@ -80,7 +175,11 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
                 };
                 return newMessages;
               });
-            } else if (parsed.type === 'error') {
+            } else if (parsed.type === 'video_trigger') {
+              handleGenerateVideo(parsed.text_content);
+            }else if (parsed.type === 'suggestion') {
+            setSuggestions(prev => [...prev, parsed.payload]);
+            }else if (parsed.type === 'error') {
               throw new Error(parsed.data);
             }
         } catch(e) {
@@ -111,6 +210,20 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
     });
   };
   
+  const handleAction = (action: string) => {
+    setSuggestions([]); // Clear suggestions after clicking one
+    const lastAiResponse = messages.filter(m => !m.isUser).pop()?.text;
+
+    if (action === 'GENERATE_VIDEO') {
+        if (lastAiResponse) {
+            handleGenerateVideo(lastAiResponse);
+        }
+    } else if (action === 'CREATE_QUIZ') {
+        // In the future, this would trigger a new query to the backend for a quiz
+        handleSend("Test my understanding with a few questions");
+    }
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     handleSend(input);
@@ -141,6 +254,36 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
                     <article className="prose prose-sm max-w-none">
                         <ReactMarkdown>{msg.text || '...'}</ReactMarkdown>
                     </article>
+                    {/* --- NEW: Display Suggestion Buttons --- */}
+                      { !isLoading && !msg.isUser && index === messages.length - 1 && suggestions.length > 0 && (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                              {suggestions.map((s, i) => (
+                                  <button 
+                                      key={i}
+                                      onClick={() => handleAction(s.action)}
+                                      className="px-3 py-1.5 text-sm bg-blue-100 text-blue-800 rounded-full hover:bg-blue-200 transition-colors"
+                                  >
+                                      {s.label}
+                                  </button>
+                              ))}
+                          </div>
+                      )}
+                     {/* --- Video Status and Player Logic --- */}
+                    { !msg.isUser && index === messages.length - 1 && (
+                      <div className="mt-4">
+                        { videoStatus && videoStatus !== 'COMPLETE' && (
+                          <p className="text-sm text-gray-500 italic">
+                            {videoStatus.startsWith('FAILED') ? `Video generation failed.` : `Generating video... (${videoStatus})`}
+                          </p>
+                        )}
+                        { videoUrl && (
+                          <div className="mt-4">
+                            <p className="text-sm font-semibold text-gray-600 mb-2">Here is your video explanation:</p>
+                            <video controls src={videoUrl} className="w-full rounded-lg" />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
