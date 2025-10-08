@@ -137,16 +137,18 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
     setVideoStatus('');
     setVideoUrl('');
     setSuggestions([]); // Clear previous suggestions
-    const ctrl = new AbortController();
+   
     const userMessage: Message = { text: messageText, isUser: true };
-    setMessages((prev) => [...prev, userMessage]);
+    const newMessagesHistory = [...messages, userMessage];
+    setMessages(newMessagesHistory);
     setIsLoading(true);
-    
+     const ctrl = new AbortController();
 
     await fetchEventSource(`${apiUrl}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: messageText }),
+      body: JSON.stringify({ question: messageText,
+                  chat_history: newMessagesHistory.slice(0, -1).slice(-6)  }),
       signal: ctrl.signal,
       onopen: async (res: { ok: any; status: any; }) => {
         if (!res.ok) {
@@ -180,7 +182,18 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
             }else if (parsed.type === 'suggestion') {
             setSuggestions(prev => [...prev, parsed.payload]);
             }else if (parsed.type === 'error') {
-              throw new Error(parsed.data);
+              // Gracefully display the specific error message from the backend
+              setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessageIndex = newMessages.length - 1;
+                newMessages[lastMessageIndex] = {
+                    ...newMessages[lastMessageIndex],
+                    text: `Sorry, an error occurred: ${parsed.data}`,
+                };
+                return newMessages;
+              });
+              // Gracefully stop the stream now that we've received a definitive error
+              ctrl.abort();
             }
         } catch(e) {
             console.error("Received a malformed stream event:", event.data);
@@ -199,7 +212,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
           if (lastMessageIndex >= 0) {
             newMessages[lastMessageIndex] = {
                 ...newMessages[lastMessageIndex],
-                text: "An unexpected error occurred. Please try again.",
+                text: "An unexpected network error occurred. Please check your connection and try again.",
             };
           }
           return newMessages;
