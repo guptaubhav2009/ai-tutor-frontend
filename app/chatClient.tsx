@@ -142,7 +142,8 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
     const newMessagesHistory = [...messages, userMessage];
     setMessages(newMessagesHistory);
     setIsLoading(true);
-     const ctrl = new AbortController();
+    setMessages((prev) => [...prev, { text: '', isUser: false }]);
+    const ctrl = new AbortController();
 
     await fetchEventSource(`${apiUrl}/query`, {
       method: 'POST',
@@ -181,6 +182,9 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
               handleGenerateVideo(parsed.text_content);
             }else if (parsed.type === 'suggestion') {
             setSuggestions(prev => [...prev, parsed.payload]);
+            }else if (parsed.type === 'stream_end') {
+              // --- FIX 1: Explicitly stop loading on successful stream end ---
+              setIsLoading(false);
             }else if (parsed.type === 'error') {
               // Gracefully display the specific error message from the backend
               setMessages(prev => {
@@ -192,6 +196,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
                 };
                 return newMessages;
               });
+              setIsLoading(false); // Re-enable the input
               // Gracefully stop the stream now that we've received a definitive error
               ctrl.abort();
             }
@@ -201,8 +206,11 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
       },
 
       onclose() {
-        // This is called when the stream ends from the server
-        setIsLoading(false);
+        // This will be called when the connection closes cleanly.
+        // If isLoading is still true here, it's a fallback to re-enable the UI.
+        if (isLoading) {
+            setIsLoading(false);
+        }
       },
     onerror(err: any) {
         console.error('EventSource failed:', err);
