@@ -202,7 +202,12 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
             }
         } catch(e) {
             console.error("Received a malformed stream event:", event.data);
-        }
+        }finally {
+          // --- THE DEFINITIVE FIX ---
+          // This block is GUARANTEED to run after the await fetchEventSource completes,
+          // whether it succeeded, failed, or was aborted.
+         setIsLoading(false);
+    }
       },
 
       onclose() {
