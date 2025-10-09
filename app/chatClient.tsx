@@ -129,15 +129,20 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const handleSend = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
+     // Clear any previous state
+    setVideoJobId(null);
+    setVideoStatus('');
+    setVideoUrl('');
+    setSuggestions([]);
+
     const userMessage: Message = { text: messageText, isUser: true };
     const newMessagesHistory = [...messages, userMessage];
     setMessages(newMessagesHistory);
     setIsLoading(true);
-    setSuggestions([]);
-    setVideoJobId(null); setVideoStatus(''); setVideoUrl('');
-
+  
+    const ctrl = new AbortController();
     try {
-      const ctrl = new AbortController();
+     
       await fetchEventSource(`${apiUrl}/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,7 +152,9 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
         }),
         signal: ctrl.signal,
         onopen: async (res) => {
-          if (!res.ok) throw new Error(`Failed to connect: ${res.status}`);
+          if (!res.ok){
+              throw new Error(`Failed to connect: ${res.status}`);
+          } 
           setMessages((prev) => [...prev, { text: '', isUser: false }]);
         },
         onmessage(event: { data: string; }) {
@@ -176,6 +183,8 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
               ctrl.abort(); // Gracefully stop the stream});
             } else if (parsed.type === 'suggestion') {
               setSuggestions(prev => [...prev, parsed.payload]);
+            } else if (parsed.type === 'video_job_started') {
+              setVideoJobId(parsed.job_id);
             } else if (parsed.type === 'stream_end') {
               // The stream ended, the finally block will handle the loading state
             }
