@@ -106,8 +106,24 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   const handleAction = (action: string) => {
     setSuggestions([]);
     const lastAiResponse = messages.filter(m => !m.isUser).pop()?.text;
-    if (action === 'GENERATE_VIDEO') { if (lastAiResponse) { handleGenerateVideo(lastAiResponse); } } 
-    else if (action === 'CREATE_QUIZ') { handleSend("Lets test the understanding with a few questions"); }
+    if (action === 'GENERATE_VIDEO') 
+      { 
+        if (lastAiResponse) { 
+          handleGenerateVideo(lastAiResponse); 
+        }
+      }  
+    else if (action === 'CREATE_QUIZ') 
+      { 
+        handleSend("Lets test the understanding with a few questions"); 
+      }
+      else {
+        // Handle any unknown or future actions gracefully.
+        const unsupportedActionMessage: Message = {
+            text: `Sorry, the "${action.toLowerCase().replace('_', ' ')}" feature is coming soon.`,
+            isUser: false
+        };
+        setMessages(prev => [...prev, unsupportedActionMessage]);
+    }
   };
 
   const handleSend = async (messageText: string) => {
