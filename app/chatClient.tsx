@@ -58,7 +58,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
   useEffect(() => {
     if (!videoJobId) return;
     const attempts = { current: 0 };
-    const maxAttempts = 24; // 2 minutes timeout
+    const maxAttempts = 120; // 2 minutes timeout
 
     const interval = setInterval(async () => {
       if (attempts.current > maxAttempts) {
