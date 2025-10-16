@@ -234,7 +234,7 @@ export default function ChatClient({ apiUrl }: { apiUrl: string }) {
     <div className="relative h-screen w-screen flex flex-col bg-white">
       <header className="bg-white shadow-md p-4">
         <h1 className="text-2xl font-bold text-gray-800">IVidya AI Concept Tutor</h1>
-        <p className="text-sm text-gray-500">Prototype based on Class VI (NCERT) Science chapter on Magnets</p>
+        <p className="text-sm text-gray-500">Prototype based on Class VI (NCERT) Science curriculumn</p>
       </header>
       <div className="flex-1 overflow-y-auto pb-40">
         <div className="max-w-3xl mx-auto px-4 pt-10">
